@@ -79,5 +79,5 @@ jobs:
     - name: Upload build
       uses: actions/upload-artifact@v4
       with:
-        name: buildoutput
+        name: opentrack-${{ matrix.os }}-${{ matrix.buildtype }}
         path: ${{github.workspace}}/build/

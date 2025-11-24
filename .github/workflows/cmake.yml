@@ -82,7 +82,7 @@ jobs:
     - name: Download Tobii Streamengine SDK
       run: | 
         Invoke-WebRequest https://www.nuget.org/api/v2/package/Tobii.StreamEngine.Native/${{env.tobii_version}} -OutFile tobii-streamengine-sdk-${{env.tobii_version}}.nupkg
-        unzip -q tobii-streamengine-sdk-${{env.tobii_version}}.nupkg 'build/native/*' -d tobii-streamengine-sdk-${{env.tobii_version}}
+        unzip tobii-streamengine-sdk-${{env.tobii_version}}.nupkg -d tobii-streamengine-sdk-${{env.tobii_version}}
       if: matrix.os == 'windows-latest'
       
     - name: Configure

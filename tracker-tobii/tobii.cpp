@@ -10,6 +10,7 @@
 #include "compat/math-imports.hpp"
 
 #include <QMutexLocker>
+#include <QThread>
 
 static constexpr double rad_to_deg = 180.0 * M_1_PI;
 static constexpr double mm_to_cm = 0.1;
@@ -18,7 +19,7 @@ static void url_receiver(char const* url, void* user_data)
 {
     char* buffer = (char*)user_data;
     if (*buffer != '\0')
-        return; // only keep first value
+        return;
 
     if (strlen(url) < 256)
         strcpy(buffer, url);
@@ -26,7 +27,6 @@ static void url_receiver(char const* url, void* user_data)
 
 static void head_pose_callback(tobii_head_pose_t const* head_pose, void* user_data)
 {
-    // Store the latest head pose data in the supplied storage
     tobii_head_pose_t* head_pose_storage = (tobii_head_pose_t*)user_data;
     *head_pose_storage = *head_pose;
 }
@@ -50,24 +50,35 @@ tobii_tracker::~tobii_tracker()
 module_status tobii_tracker::start_tracker(QFrame*)
 {
     QMutexLocker lck(&mtx);
+
     tobii_error_t tobii_error = tobii_api_create(&api, nullptr, nullptr);
     if (tobii_error != TOBII_ERROR_NO_ERROR)
-    {
         return error("Failed to initialize the Tobii Stream Engine API.");
-    }
 
     char url[256] = { 0 };
-    tobii_error = tobii_enumerate_local_device_urls(api, url_receiver, url);
-    if (tobii_error != TOBII_ERROR_NO_ERROR || url[0] == '\0')
+
+    // Retry enumeration for up to ~2 seconds (40 × 50ms)
+    for (int i = 0; i < 40 && url[0] == '\0'; i++)
+    {
+        tobii_error = tobii_enumerate_local_device_urls(api, url_receiver, url);
+        if (tobii_error == TOBII_ERROR_NO_ERROR && url[0] != '\0')
+            break;
+
+        QThread::msleep(50);
+    }
+
+    if (url[0] == '\0')
     {
         tobii_api_destroy(api);
-        return error("No stream engine compatible device(s) found.");
+        api = nullptr;
+        return error("No Tobii Stream Engine compatible device found.");
     }
 
     tobii_error = tobii_device_create(api, url, &device);
-    if (tobii_error != TOBII_ERROR_NO_ERROR)
+    if (tobii_error != TOBII_ERROR_NO_ERROR || device == nullptr)
     {
         tobii_api_destroy(api);
+        api = nullptr;
         return error(QString("Failed to connect to %1.").arg(url));
     }
 
@@ -75,7 +86,9 @@ module_status tobii_tracker::start_tracker(QFrame*)
     if (tobii_error != TOBII_ERROR_NO_ERROR)
     {
         tobii_device_destroy(device);
+        device = nullptr;
         tobii_api_destroy(api);
+        api = nullptr;
         return error("Failed to subscribe to head pose stream.");
     }
 
@@ -85,37 +98,29 @@ module_status tobii_tracker::start_tracker(QFrame*)
 void tobii_tracker::data(double* data)
 {
     QMutexLocker lck(&mtx);
+
+    if (!device)
+        return;
+
     tobii_error_t tobii_error = tobii_device_process_callbacks(device);
     if (tobii_error != TOBII_ERROR_NO_ERROR)
-    {
         return;
-    }
-
-    // Tobii coordinate system is different from OpenTrack's
-    // Tobii: +x is to the right, +y is up, +z is towards the user
-    // Rotation xyz is in radians, x is pitch, y is yaw, z is roll
 
     if (latest_head_pose.position_validity == TOBII_VALIDITY_VALID)
     {
         data[TX] = -latest_head_pose.position_xyz[0] * mm_to_cm;
-        data[TY] = latest_head_pose.position_xyz[1] * mm_to_cm;
-        data[TZ] = latest_head_pose.position_xyz[2] * mm_to_cm;
+        data[TY] =  latest_head_pose.position_xyz[1] * mm_to_cm;
+        data[TZ] =  latest_head_pose.position_xyz[2] * mm_to_cm;
     }
 
     if (latest_head_pose.rotation_validity_xyz[0] == TOBII_VALIDITY_VALID)
-    {
         data[Pitch] = latest_head_pose.rotation_xyz[0] * rad_to_deg;
-    }
 
     if (latest_head_pose.rotation_validity_xyz[1] == TOBII_VALIDITY_VALID)
-    {
         data[Yaw] = -latest_head_pose.rotation_xyz[1] * rad_to_deg;
-    }
 
     if (latest_head_pose.rotation_validity_xyz[2] == TOBII_VALIDITY_VALID)
-    {
         data[Roll] = latest_head_pose.rotation_xyz[2] * rad_to_deg;
-    }
 }
 
 OPENTRACK_DECLARE_TRACKER(tobii_tracker, tobii_dialog, tobii_metadata)

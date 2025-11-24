@@ -9,6 +9,7 @@ env:
   BUILD_TYPE: Release
   onnx_version: 1.21.0
   onnx_prefix: onnxruntime-win-x64
+  tobii_version: 2.2.2.363
 
 jobs:
   build:
@@ -77,9 +78,15 @@ jobs:
         Invoke-WebRequest https://github.com/microsoft/onnxruntime/releases/download/v${{env.onnx_version}}/${{env.onnx_prefix}}-${{env.onnx_version}}.zip -OutFile ${{env.onnx_prefix}}-${{env.onnx_version}}.zip
         unzip -q ${{env.onnx_prefix}}-${{env.onnx_version}}.zip
       if: matrix.os == 'windows-latest'
+
+    - name: Download Tobii Streamengine SDK
+      run: | 
+        Invoke-WebRequest https://www.nuget.org/api/v2/package/Tobii.StreamEngine.Native/${{env.tobii_version}} -OutFile tobii-streamengine-sdk-${{env.tobii_version}}.nupkg
+        unzip -q tobii-streamengine-sdk-${{env.tobii_version}}.nupkg 'build/native/*' -d tobii-streamengine-sdk-${{env.tobii_version}}
+      if: matrix.os == 'windows-latest'
       
     - name: Configure
-      run: ${{matrix.cmake}} -GNinja -S ${{github.workspace}}/ -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DQt6_DIR="${{env.QT_ROOT_DIR}}/lib/cmake/Qt6" -DONNXRuntime_DIR="${{env.onnx_prefix}}-${{env.onnx_version}}"
+      run: ${{matrix.cmake}} -GNinja -S ${{github.workspace}}/ -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DQt6_DIR="${{env.QT_ROOT_DIR}}/lib/cmake/Qt6" -DONNXRuntime_DIR="${{env.onnx_prefix}}-${{env.onnx_version}}" -DSDK_TOBII="tobii-streamengine-sdk-${{env.tobii_version}}/build/native"
 
     - name: Build
       run: ${{matrix.cmake}} --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target install
